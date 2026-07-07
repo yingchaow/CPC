@@ -1,0 +1,83 @@
+experiment:
+  name: best_checkpoint
+  seed: 42
+  output_dir: classic_hashing/outputs
+model:
+  hash_bits: 64
+  image_hidden_dims: [8192, 8192]
+  text_hidden_dims: [8192]
+  l2_normalize: true
+train:
+  epochs: 50
+  batch_size: 128
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  num_workers: 4
+robust_training:
+  small_loss: {enabled: false, warmup_epochs: 5, schedule: mgsh_linear}
+  ema_teacher: {enabled: false, momentum: 0.995}
+  knn_classification_weight:
+    enabled: true
+    warmup_epochs: 5
+    k: 20
+    gamma: 0.5
+    chunk_size: 1024
+    soft_label_enabled: true
+  neighbor_refining:
+    enabled: false
+    warmup_epochs: 5
+    k: 20
+    chunk_size: 1024
+    pure_weight: 1.0
+    hard_weight: 0.5
+    noisy_weight: 0.2
+loss:
+  pairwise:
+    enabled: true
+    mode: jaccard_contrast
+    weight: 0.7
+    gce_q: 0.7
+    reverse_weight: 0.1
+    margin: 0.15
+    shift: 0.8
+    temperature: 1.0
+    hard_negative:
+      enabled: false
+      alpha: 1.0
+      margin: 0.2
+      label_threshold: 0.0
+  center:
+    enabled: true
+    weight: 0.5
+    update: learnable
+    momentum: 0.95
+    temperature: 0.1
+    rgce_r: 0.7
+    hard_negative:
+      enabled: false
+      alpha: 1.0
+      margin: 0.2
+      label_threshold: 0.0
+    dual_center:
+      enabled: true
+      hard_weight: 0.03
+      separation_weight: 0.03
+      margin: 0.2
+      warmup_epochs: 5
+      top_k: 2
+      reliability_enabled: true
+      negative_centers: 3
+      diversity_weight: 0.01
+      hash_quantization_weight: 0.01
+    self_paced:
+      enabled: false
+      warmup_epochs: 5
+      gamma_start: 0.3
+      gamma_end: 1.2
+      soft_label_correction: false
+  cmp: {enabled: true, weight: 0.1, margin: 0.3}
+  classification: {enabled: true, weight: 1.0}
+  quantization: {enabled: true, weight: 2.5}
+  balance: {enabled: false, weight: 0.01}
+  ema_consistency: {enabled: false, weight: 0.2}
+evaluation: {interval: 1, plot_pr_curve: false, pr_curve_points: 100}

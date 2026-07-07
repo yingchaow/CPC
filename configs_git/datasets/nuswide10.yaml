@@ -1,0 +1,18 @@
+dataset:
+  name: nuswide10
+  source_type: separate_mat
+  image_path: /home/jiyonghui/wangyingchao/classic_hashing/data/nuswide10/nus-wide-tc10-xall-vgg.mat
+  text_path: /home/jiyonghui/wangyingchao/classic_hashing/data/nuswide10/nus-wide-tc10-yall.mat
+  label_path: /home/jiyonghui/wangyingchao/classic_hashing/data/nuswide10/nus-wide-tc10-lall.mat
+  artifact_dir: classic_hashing/artifacts/nuswide10
+  h5_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/nuswide10/nuswide10.h5
+  split_path: classic_hashing/artifacts/nuswide10/split.npz
+  noise_rate: 0.5
+  noise_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/nuswide10/labels_noise_0.5_seed42.h5
+  image_dim: 4096
+  text_dim: 1000
+  num_classes: 10
+  query_size: 2100
+  train_size: 10500
+  database_start: 2100
+

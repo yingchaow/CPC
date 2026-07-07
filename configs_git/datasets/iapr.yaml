@@ -1,0 +1,15 @@
+dataset:
+  name: iapr
+  source_type: iapr_mat
+  source_path: /home/jiyonghui/wangyingchao/classic_hashing/data/iapr/iapr-tc12-rand.mat
+  artifact_dir: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/iapr
+  h5_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/iapr/iapr.h5
+  split_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/iapr/split.npz
+  noise_rate: 0.5
+  noise_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/iapr/labels_noise_0.5_seed42.h5
+  image_dim: 4096
+  text_dim: 2912
+  num_classes: 255
+  query_size: 2000
+  train_size: 10000
+  database_start: 2000

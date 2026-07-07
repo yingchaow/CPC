@@ -1,0 +1,60 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments and local environment files
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local Codex/agent workspace metadata
+.agents/
+.codex/
+
+# Experiment outputs, logs, and checkpoints
+outputs/
+classic_hashing/outputs/
+logs/
+*.log
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# Generated datasets and artifacts
+artifacts/
+classic_hashing/artifacts/
+data/**/*.mat
+data/**/*.h5
+data/**/*.hdf5
+data/**/*.h5py
+data/**/*.npz
+data/**/*.npy
+
+# Generated plots and result bundles
+pr/
+configs/
+tests/
+
+# Accidental CLI argument files
+--dataset-config
+--method-config
+--config

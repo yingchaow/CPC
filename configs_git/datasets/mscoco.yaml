@@ -1,0 +1,16 @@
+dataset:
+  name: mscoco
+  source_type: single_hdf5
+  source_path: /home/jiyonghui/wangyingchao/classic_hashing/data/mscoco/MSCOCO_deep_doc2vec_data_rand.h5py
+  artifact_dir: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mscoco
+  h5_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mscoco/mscoco.h5
+  split_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mscoco/split.npz
+  noise_rate: 0.5
+  noise_path: /home/jiyonghui/wangyingchao/classic_hashing/mscoco/labels_noise_0.5_seed42.h5
+  image_dim: 4096
+  text_dim: 300
+  num_classes: 80
+  query_size: 5000
+  train_size: 10000
+  database_start: 15000
+

@@ -1,0 +1,17 @@
+dataset:
+  name: mirflickr_scbch
+  source_type: separate_mat
+  image_path: /home/jiyonghui/wangyingchao/classic_hashing/data/mirflickr/mirflickr25k-iall-vgg.mat
+  text_path: /home/jiyonghui/wangyingchao/classic_hashing/data/mirflickr/mirflickr25k-yall.mat
+  label_path: /home/jiyonghui/wangyingchao/classic_hashing/data/mirflickr/mirflickr25k-lall.mat
+  artifact_dir: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch
+  h5_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch/mirflickr_scbch.h5
+  split_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch/split.npz
+  noise_rate: 0.5
+  noise_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch/labels_noise_0.8_seed42.h5
+  image_dim: 4096
+  text_dim: 1386
+  num_classes: 24
+  query_size: 2000
+  train_size: 10000
+  database_start: 2000
