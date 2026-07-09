@@ -6,6 +6,76 @@ import yaml
 from classic_hashing.data.registry import get_dataset_spec
 
 
+DEFAULT_CONFIG = {
+    "experiment": {
+        "name": "experiment",
+        "seed": 42,
+        "output_dir": "classic_hashing/outputs",
+    },
+    "model": {
+        "hash_bits": 64,
+        "image_hidden_dims": [8192, 8192],
+        "text_hidden_dims": [8192],
+        "l2_normalize": True,
+    },
+    "train": {
+        "epochs": 50,
+        "batch_size": 128,
+        "learning_rate": 1e-4,
+        "weight_decay": 1e-5,
+        "num_workers": 4,
+    },
+    "robust_training": {
+        "knn_classification_weight": {
+            "enabled": True,
+            "warmup_epochs": 5,
+            "k": 20,
+            "gamma": 0.5,
+            "chunk_size": 1024,
+            "soft_label_enabled": True,
+        },
+    },
+    "loss": {
+        "pairwise": {
+            "enabled": True,
+            "mode": "jaccard_contrast",
+            "weight": 0.7,
+            "margin": 0.15,
+            "shift": 0.8,
+            "temperature": 1.0,
+        },
+        "center": {
+            "enabled": True,
+            "weight": 0.5,
+            "update": "learnable",
+            "momentum": 0.95,
+            "temperature": 0.1,
+            "rgce_r": 0.7,
+            "dual_center": {
+                "enabled": True,
+                "hard_weight": 0.03,
+                "separation_weight": 0.03,
+                "margin": 0.2,
+                "warmup_epochs": 5,
+                "top_k": 2,
+                "reliability_enabled": True,
+                "negative_centers": 3,
+                "diversity_weight": 0.01,
+                "hash_quantization_weight": 0.01,
+            },
+        },
+        "cmp": {"enabled": True, "weight": 0.1, "margin": 0.3},
+        "classification": {"enabled": True, "weight": 1.0},
+        "quantization": {"enabled": True, "weight": 2.5},
+    },
+    "evaluation": {
+        "interval": 1,
+        "plot_pr_curve": False,
+        "pr_curve_points": 100,
+    },
+}
+
+
 class ConfigNode(dict):
     def __getattribute__(self, name):
         if not name.startswith("__") and dict.__contains__(self, name):
@@ -67,6 +137,24 @@ def _deep_merge(left, right):
     return merged
 
 
+def _apply_defaults(config, defaults):
+    for key, value in defaults.items():
+        if key not in config:
+            config[key] = _to_node(deepcopy(value))
+            continue
+        if isinstance(config[key], dict) and isinstance(value, dict):
+            _apply_defaults(config[key], value)
+
+
+def _prune_unknown(config, schema):
+    for key in list(config.keys()):
+        if key not in schema:
+            del config[key]
+            continue
+        if isinstance(config[key], dict) and isinstance(schema[key], dict):
+            _prune_unknown(config[key], schema[key])
+
+
 def _apply_override(raw, dotted_key, value):
     parts = dotted_key.split(".")
     target = raw
@@ -117,223 +205,95 @@ def validate_dataset_section(dataset, protocol_overrides=None):
     return spec
 
 
-def validate_config(config, protocol_overrides=None):
-    validate_dataset_section(config.dataset, protocol_overrides)
-    pairwise_defaults = {
-        "mode": "jaccard_contrast",
-        "margin": 0.15,
-        "shift": 0.8,
-        "temperature": 1.0,
-        "similarity": "jaccard",
-    }
-    for key, value in pairwise_defaults.items():
-        if key not in config.loss.pairwise:
-            config.loss.pairwise[key] = value
-    hard_negative_defaults = {
-        "enabled": False,
-        "alpha": 1.0,
-        "margin": 0.2,
-        "label_threshold": 0.0,
-    }
-    if "hard_negative" not in config.loss.pairwise:
-        config.loss.pairwise.hard_negative = ConfigNode()
-    hard_negative = config.loss.pairwise.hard_negative
-    for key, value in hard_negative_defaults.items():
-        if key not in hard_negative:
-            hard_negative[key] = value
-    if "hard_negative" not in config.loss.center:
-        config.loss.center.hard_negative = ConfigNode()
-    center_hard_negative = config.loss.center.hard_negative
-    for key, value in hard_negative_defaults.items():
-        if key not in center_hard_negative:
-            center_hard_negative[key] = value
-    dual_center_defaults = {
-        "enabled": False,
-        "hard_weight": 0.1,
-        "separation_weight": 0.1,
-        "margin": 0.2,
-        "warmup_epochs": 0,
-        "top_k": 0,
-        "reliability_enabled": False,
-        "negative_centers": 1,
-        "diversity_weight": 0.0,
-        "hash_quantization_weight": 0.0,
-    }
-    if "dual_center" not in config.loss.center:
-        config.loss.center.dual_center = ConfigNode()
-    dual_center = config.loss.center.dual_center
-    for key, value in dual_center_defaults.items():
-        if key not in dual_center:
-            dual_center[key] = value
-    if "classification" not in config.loss:
-        config.loss.classification = ConfigNode(
-            {"enabled": False, "weight": 1.0}
-        )
-    if "cmp" not in config.loss:
-        config.loss.cmp = ConfigNode(
-            {"enabled": False, "weight": 0.1, "margin": 0.3}
-        )
-    knn_defaults = {
-        "enabled": False,
-        "warmup_epochs": 5,
-        "k": 20,
-        "gamma": 0.5,
-        "chunk_size": 1024,
-        "soft_label_enabled": False,
-    }
-    if "knn_classification_weight" not in config.robust_training:
-        config.robust_training.knn_classification_weight = ConfigNode()
-    knn_weight = config.robust_training.knn_classification_weight
-    for key, value in knn_defaults.items():
-        if key not in knn_weight:
-            knn_weight[key] = value
-    if config.dataset.query_size < 1:
-        raise ValueError("dataset.query_size must be positive")
-    if config.dataset.train_size < 1:
-        raise ValueError("dataset.train_size must be positive")
-    if config.train.epochs < 1:
-        raise ValueError("train.epochs must be positive")
-    if config.train.batch_size < 1:
-        raise ValueError("train.batch_size must be positive")
-    if config.model.hash_bits not in (16, 32, 64, 128):
-        raise ValueError("model.hash_bits must be one of 16, 32, 64, 128")
-    if config.dataset.noise_rate not in (0.2, 0.5, 0.8):
-        raise ValueError("dataset.noise_rate must be one of 0.2, 0.5, 0.8")
-    if config.loss.pairwise.mode != "jaccard_contrast":
-        raise ValueError("loss.pairwise.mode must be jaccard_contrast")
-    if config.loss.pairwise.similarity not in (
-        "jaccard",
-        "dice",
-        "cosine",
-        "overlap",
-        "binary",
-    ):
-        raise ValueError(
-            "loss.pairwise.similarity must be jaccard, dice, cosine, "
-            "overlap, or binary"
-        )
-    if hard_negative.alpha < 0:
-        raise ValueError("hard_negative.alpha must be nonnegative")
-    if hard_negative.margin < 0.0 or hard_negative.margin > 1.0:
-        raise ValueError("hard_negative.margin must be between 0 and 1")
-    if (
-        hard_negative.label_threshold < 0.0
-        or hard_negative.label_threshold > 1.0
-    ):
-        raise ValueError(
-            "hard_negative.label_threshold must be between 0 and 1"
-        )
-    if center_hard_negative.alpha < 0:
-        raise ValueError("center.hard_negative.alpha must be nonnegative")
-    if (
-        center_hard_negative.margin < 0.0
-        or center_hard_negative.margin > 2.0
-    ):
-        raise ValueError(
-            "center.hard_negative.margin must be between 0 and 2"
-        )
-    if (
-        center_hard_negative.label_threshold < 0.0
-        or center_hard_negative.label_threshold > 1.0
-    ):
-        raise ValueError(
-            "center.hard_negative.label_threshold must be between 0 and 1"
-        )
-    if dual_center.hard_weight < 0:
-        raise ValueError(
-            "center.dual_center.hard_weight must be nonnegative"
-        )
-    if dual_center.separation_weight < 0:
-        raise ValueError(
-            "center.dual_center.separation_weight must be nonnegative"
-        )
-    if dual_center.margin < 0.0 or dual_center.margin > 2.0:
-        raise ValueError(
-            "center.dual_center.margin must be between 0 and 2"
-        )
-    if dual_center.warmup_epochs < 0:
-        raise ValueError(
-            "center.dual_center.warmup_epochs must be nonnegative"
-        )
-    if dual_center.top_k < 0:
-        raise ValueError("center.dual_center.top_k must be nonnegative")
-    if dual_center.negative_centers < 1:
-        raise ValueError(
-            "center.dual_center.negative_centers must be positive"
-        )
-    if dual_center.diversity_weight < 0:
-        raise ValueError(
-            "center.dual_center.diversity_weight must be nonnegative"
-        )
-    if dual_center.hash_quantization_weight < 0:
-        raise ValueError(
-            "center.dual_center.hash_quantization_weight must be nonnegative"
-        )
-    if config.loss.cmp.weight < 0:
-        raise ValueError("loss.cmp.weight must be nonnegative")
-    if config.loss.cmp.margin < 0.0 or config.loss.cmp.margin > 2.0:
-        raise ValueError("loss.cmp.margin must be between 0 and 2")
-    if "balance" in config.loss and config.loss.balance.enabled:
-        raise ValueError("balance loss has been removed from this build")
-    if (
-        "ema_consistency" in config.loss
-        and config.loss.ema_consistency.enabled
-    ):
-        raise ValueError(
-            "EMA consistency loss has been removed from this build"
-        )
-    if (
-        "semantic_multi_center" in config.loss.center
-        and config.loss.center.semantic_multi_center.enabled
-    ):
-        raise ValueError(
-            "semantic_multi_center has been removed from this build"
-        )
-    if knn_weight.enabled and not config.loss.classification.enabled:
-        raise ValueError(
-            "kNN classification weight requires classification loss"
-        )
-    if knn_weight.soft_label_enabled and not knn_weight.enabled:
+def _require_positive(name, value):
+    if value < 1:
+        raise ValueError(f"{name} must be positive")
+
+
+def _require_nonnegative(name, value):
+    if value < 0:
+        raise ValueError(f"{name} must be nonnegative")
+
+
+def _require_between(name, value, low, high):
+    if value < low or value > high:
+        raise ValueError(f"{name} must be between {low} and {high}")
+
+
+def _require_choice(name, value, choices):
+    if value not in choices:
+        allowed = ", ".join(str(choice) for choice in choices)
+        raise ValueError(f"{name} must be one of {allowed}")
+
+
+def _validate_loss_weights(loss):
+    for name in ("pairwise", "center", "quantization", "classification", "cmp"):
+        _require_nonnegative(f"loss.{name}.weight", loss[name].weight)
+
+
+def _validate_pairwise(pairwise):
+    _require_choice("loss.pairwise.mode", pairwise.mode, ("jaccard_contrast",))
+
+
+def _validate_center(center):
+    _require_choice("loss.center.update", center.update, ("ema", "learnable"))
+
+    dual = center.dual_center
+    _require_nonnegative("loss.center.dual_center.hard_weight", dual.hard_weight)
+    _require_nonnegative("loss.center.dual_center.separation_weight", dual.separation_weight)
+    _require_between("loss.center.dual_center.margin", dual.margin, 0.0, 2.0)
+    _require_nonnegative("loss.center.dual_center.warmup_epochs", dual.warmup_epochs)
+    _require_nonnegative("loss.center.dual_center.top_k", dual.top_k)
+    _require_positive("loss.center.dual_center.negative_centers", dual.negative_centers)
+    _require_nonnegative("loss.center.dual_center.diversity_weight", dual.diversity_weight)
+    _require_nonnegative(
+        "loss.center.dual_center.hash_quantization_weight",
+        dual.hash_quantization_weight,
+    )
+
+    if dual.enabled and center.update != "learnable":
+        raise ValueError("dual_center requires center.update=learnable")
+
+
+def _validate_knn(knn, classification_enabled):
+    if knn.enabled and not classification_enabled:
+        raise ValueError("kNN classification weight requires classification loss")
+    if knn.soft_label_enabled and not knn.enabled:
         raise ValueError("soft labels require kNN classification weighting")
-    if knn_weight.warmup_epochs < 0:
-        raise ValueError(
-            "knn_classification_weight.warmup_epochs must be nonnegative"
-        )
-    if knn_weight.k < 1:
-        raise ValueError("knn_classification_weight.k must be positive")
-    if not 0.0 <= knn_weight.gamma <= 1.0:
-        raise ValueError(
-            "knn_classification_weight.gamma must be between 0 and 1"
-        )
-    if knn_weight.chunk_size < 1:
-        raise ValueError(
-            "knn_classification_weight.chunk_size must be positive"
-        )
-    if config.loss.center.update not in ("ema", "learnable"):
-        raise ValueError("center.update must be ema or learnable")
-    if (
-        center_hard_negative.enabled
-        and config.loss.center.update != "learnable"
-    ):
-        raise ValueError(
-            "center hard_negative requires center.update=learnable"
-        )
-    if dual_center.enabled and config.loss.center.update != "learnable":
-        raise ValueError(
-            "dual_center requires center.update=learnable"
-        )
-    if not any(
-        (
-            config.loss.pairwise.enabled,
-            config.loss.center.enabled,
-            config.loss.quantization.enabled,
-            config.loss.classification.enabled,
-            config.loss.cmp.enabled,
-        )
-    ):
+    _require_nonnegative("knn_classification_weight.warmup_epochs", knn.warmup_epochs)
+    _require_positive("knn_classification_weight.k", knn.k)
+    _require_between("knn_classification_weight.gamma", knn.gamma, 0.0, 1.0)
+    _require_positive("knn_classification_weight.chunk_size", knn.chunk_size)
+
+
+def validate_config(config, protocol_overrides=None):
+    _apply_defaults(config, DEFAULT_CONFIG)
+    for section, schema in DEFAULT_CONFIG.items():
+        _prune_unknown(config[section], schema)
+    validate_dataset_section(config.dataset, protocol_overrides)
+
+    _require_positive("dataset.query_size", config.dataset.query_size)
+    _require_positive("dataset.train_size", config.dataset.train_size)
+    _require_choice("dataset.noise_rate", config.dataset.noise_rate, (0.2, 0.5, 0.8))
+
+    _require_positive("train.epochs", config.train.epochs)
+    _require_positive("train.batch_size", config.train.batch_size)
+    _require_positive("model.hash_bits", config.model.hash_bits)
+    _require_choice("model.hash_bits", config.model.hash_bits, (16, 32, 64, 128))
+
+    loss = config.loss
+    _validate_loss_weights(loss)
+    _validate_pairwise(loss.pairwise)
+    _validate_center(loss.center)
+    _require_between("loss.cmp.margin", loss.cmp.margin, 0.0, 2.0)
+    _validate_knn(
+        config.robust_training.knn_classification_weight,
+        loss.classification.enabled,
+    )
+
+    if not any(loss[name].enabled for name in DEFAULT_CONFIG["loss"]):
         raise ValueError("at least one training loss must be enabled")
-    if config.evaluation.interval < 1:
-        raise ValueError("evaluation.interval must be positive")
+    _require_positive("evaluation.interval", config.evaluation.interval)
     if config.evaluation.pr_curve_points < 2:
         raise ValueError("evaluation.pr_curve_points must be >= 2")
     return config

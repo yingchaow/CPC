@@ -21,26 +21,36 @@ class CompositeHashLoss(nn.Module):
         super().__init__()
         self.config = config
         self.center_loss = PrototypeCenterLoss(
-            num_classes,
-            hash_bits,
-            config.loss.center.momentum,
-            config.loss.center.temperature,
-            config.loss.center.rgce_r,
-            config.loss.center.update,
-            config.loss.center.hard_negative.enabled,
-            config.loss.center.hard_negative.alpha,
-            config.loss.center.hard_negative.margin,
-            config.loss.center.hard_negative.label_threshold,
-            config.loss.center.dual_center.enabled,
-            config.loss.center.dual_center.hard_weight,
-            config.loss.center.dual_center.separation_weight,
-            config.loss.center.dual_center.margin,
-            config.loss.center.dual_center.warmup_epochs,
-            config.loss.center.dual_center.top_k,
-            config.loss.center.dual_center.reliability_enabled,
-            config.loss.center.dual_center.negative_centers,
-            config.loss.center.dual_center.diversity_weight,
-            config.loss.center.dual_center.hash_quantization_weight,
+            num_classes=num_classes,
+            hash_bits=hash_bits,
+            momentum=config.loss.center.momentum,
+            temperature=config.loss.center.temperature,
+            rgce_r=config.loss.center.rgce_r,
+            update=config.loss.center.update,
+            dual_center_enabled=config.loss.center.dual_center.enabled,
+            dual_center_hard_weight=(
+                config.loss.center.dual_center.hard_weight
+            ),
+            dual_center_separation_weight=(
+                config.loss.center.dual_center.separation_weight
+            ),
+            dual_center_margin=config.loss.center.dual_center.margin,
+            dual_center_warmup_epochs=(
+                config.loss.center.dual_center.warmup_epochs
+            ),
+            dual_center_top_k=config.loss.center.dual_center.top_k,
+            dual_center_reliability_enabled=(
+                config.loss.center.dual_center.reliability_enabled
+            ),
+            dual_center_negative_centers=(
+                config.loss.center.dual_center.negative_centers
+            ),
+            dual_center_diversity_weight=(
+                config.loss.center.dual_center.diversity_weight
+            ),
+            dual_center_hash_quantization_weight=(
+                config.loss.center.dual_center.hash_quantization_weight
+            ),
         )
 
     @staticmethod
@@ -84,19 +94,6 @@ class CompositeHashLoss(nn.Module):
                 margin=self.config.loss.pairwise.margin,
                 shift=self.config.loss.pairwise.shift,
                 temperature=self.config.loss.pairwise.temperature,
-                similarity=self.config.loss.pairwise.similarity,
-                hard_negative_enabled=(
-                    self.config.loss.pairwise.hard_negative.enabled
-                ),
-                hard_negative_alpha=(
-                    self.config.loss.pairwise.hard_negative.alpha
-                ),
-                hard_negative_margin=(
-                    self.config.loss.pairwise.hard_negative.margin
-                ),
-                hard_negative_label_threshold=(
-                    self.config.loss.pairwise.hard_negative.label_threshold
-                ),
             ).mean
         if self.config.loss.center.enabled and selected.any():
             center_reliability = self._center_reliability(

@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 
 
 @dataclass
@@ -11,32 +10,11 @@ class LossOutput:
 
 
 def jaccard_similarity(labels):
-    return label_similarity(labels, mode="jaccard")
-
-
-def label_similarity(labels, mode="jaccard"):
     labels = labels.float()
     intersection = labels @ labels.t()
     cardinality = labels.sum(dim=1, keepdim=True)
-    if mode == "jaccard":
-        union = cardinality + cardinality.t() - intersection
-        return intersection / union.clamp_min(1e-8)
-    if mode == "dice":
-        denominator = cardinality + cardinality.t()
-        return 2.0 * intersection / denominator.clamp_min(1e-8)
-    if mode == "cosine":
-        denominator = torch.sqrt(cardinality @ cardinality.t())
-        return intersection / denominator.clamp_min(1e-8)
-    if mode == "overlap":
-        denominator = torch.minimum(cardinality, cardinality.t())
-        return intersection / denominator.clamp_min(1e-8)
-    if mode == "binary":
-        return (intersection > 0).float()
-    raise ValueError(f"unsupported label similarity mode: {mode}")
-
-
-def pair_target_similarity(labels, similarity="jaccard"):
-    return label_similarity(labels, mode=similarity)
+    union = cardinality + cardinality.t() - intersection
+    return intersection / union.clamp_min(1e-8)
 
 
 def jaccard_contrast_loss(
@@ -46,13 +24,8 @@ def jaccard_contrast_loss(
     margin=0.15,
     shift=0.8,
     temperature=1.0,
-    hard_negative_enabled=False,
-    hard_negative_alpha=1.0,
-    hard_negative_margin=0.2,
-    hard_negative_label_threshold=0.0,
-    similarity="jaccard",
 ):
-    target = pair_target_similarity(labels.float(), similarity=similarity)
+    target = jaccard_similarity(labels)
     pair_weight = labels.new_ones((labels.shape[0], labels.shape[0]))
     hash_similarity = image_hash @ text_hash.t()
     diagonal = hash_similarity.diag()
@@ -80,23 +53,6 @@ def jaccard_contrast_loss(
         image_cost.diag().clamp_min(0)
     )
     negative_weight = 1.0 - target
-    if hard_negative_enabled:
-        eye_mask = torch.eye(
-            hash_similarity.shape[0],
-            device=hash_similarity.device,
-            dtype=torch.bool,
-        )
-        negative_mask = (
-            target <= hard_negative_label_threshold
-        ) & ~eye_mask
-        hard_negative_weight = 1.0 + hard_negative_alpha * F.relu(
-            hash_similarity.detach() - hard_negative_margin
-        )
-        negative_weight = torch.where(
-            negative_mask,
-            negative_weight * hard_negative_weight,
-            negative_weight,
-        )
     text_pair_loss = temperature * torch.exp(
         text_cost / temperature * negative_weight
     )
@@ -124,11 +80,6 @@ def pairwise_logistic_loss(
     margin=0.15,
     shift=0.8,
     temperature=1.0,
-    hard_negative_enabled=False,
-    hard_negative_alpha=1.0,
-    hard_negative_margin=0.2,
-    hard_negative_label_threshold=0.0,
-    similarity="jaccard",
 ):
     if mode != "jaccard_contrast":
         raise ValueError("pairwise loss only supports jaccard_contrast")
@@ -139,9 +90,4 @@ def pairwise_logistic_loss(
         margin=margin,
         shift=shift,
         temperature=temperature,
-        hard_negative_enabled=hard_negative_enabled,
-        hard_negative_alpha=hard_negative_alpha,
-        hard_negative_margin=hard_negative_margin,
-        hard_negative_label_threshold=hard_negative_label_threshold,
-        similarity=similarity,
     )

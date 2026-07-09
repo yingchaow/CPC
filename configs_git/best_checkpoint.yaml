@@ -29,11 +29,6 @@ loss:
     margin: 0.15
     shift: 0.8
     temperature: 1.0
-    hard_negative:
-      enabled: false
-      alpha: 1.0
-      margin: 0.2
-      label_threshold: 0.0
   center:
     enabled: true
     weight: 0.5
@@ -41,11 +36,6 @@ loss:
     momentum: 0.95
     temperature: 0.1
     rgce_r: 0.7
-    hard_negative:
-      enabled: false
-      alpha: 1.0
-      margin: 0.2
-      label_threshold: 0.0
     dual_center:
       enabled: true
       hard_weight: 0.03

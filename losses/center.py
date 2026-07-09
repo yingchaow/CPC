@@ -14,10 +14,6 @@ class PrototypeCenterLoss(nn.Module):
         temperature,
         rgce_r,
         update="ema",
-        hard_negative_enabled=False,
-        hard_negative_alpha=1.0,
-        hard_negative_margin=0.2,
-        hard_negative_label_threshold=0.0,
         dual_center_enabled=False,
         dual_center_hard_weight=0.1,
         dual_center_separation_weight=0.1,
@@ -70,12 +66,6 @@ class PrototypeCenterLoss(nn.Module):
         self.momentum = float(momentum)
         self.temperature = float(temperature)
         self.rgce_r = float(rgce_r)
-        self.hard_negative_enabled = bool(hard_negative_enabled)
-        self.hard_negative_alpha = float(hard_negative_alpha)
-        self.hard_negative_margin = float(hard_negative_margin)
-        self.hard_negative_label_threshold = float(
-            hard_negative_label_threshold
-        )
         self.dual_center_hard_weight = float(dual_center_hard_weight)
         self.dual_center_separation_weight = float(
             dual_center_separation_weight
@@ -129,20 +119,6 @@ class PrototypeCenterLoss(nn.Module):
         hash_values = F.normalize(hash_values, p=2, dim=1)
         return hash_values @ prototypes.t()
 
-    def _hard_negative_loss(self, positive_similarity, labels):
-        labels = labels.float()
-        positive_count = labels.sum(dim=1).clamp_min(1.0)
-        positive_score = (
-            positive_similarity * labels
-        ).sum(dim=1, keepdim=True) / positive_count.unsqueeze(1)
-        negative_mask = labels <= self.hard_negative_label_threshold
-        penalty = F.relu(
-            positive_similarity - positive_score + self.hard_negative_margin
-        )
-        penalty = penalty * negative_mask.float()
-        negative_count = negative_mask.sum(dim=1).clamp_min(1)
-        return penalty.sum(dim=1) / negative_count
-
     def _dual_center_loss(
         self,
         hash_values,
@@ -169,7 +145,7 @@ class PrototypeCenterLoss(nn.Module):
             positive_similarity * labels
         ).sum(dim=1, keepdim=True) / positive_count.unsqueeze(1)
 
-        negative_mask = labels <= self.hard_negative_label_threshold
+        negative_mask = labels <= 0.0
         push_away = F.relu(
             positive_similarity
             - positive_score.detach()
@@ -264,15 +240,6 @@ class PrototypeCenterLoss(nn.Module):
             self._robust_loss(image_confidence)
             + self._robust_loss(text_confidence)
         ) / 2.0
-        if self.hard_negative_enabled:
-            hard_negative = (
-                self._hard_negative_loss(image_similarity, labels)
-                + self._hard_negative_loss(text_similarity, labels)
-            ) / 2.0
-            per_sample = (
-                per_sample
-                + self.hard_negative_alpha * hard_negative
-            )
         dual_center_active = self.dual_center_enabled and (
             current_epoch is None
             or current_epoch >= self.dual_center_warmup_epochs
