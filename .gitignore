@@ -53,6 +53,7 @@ data/**/*.npy
 pr/
 configs/
 tests/
+docs/
 
 # Accidental CLI argument files
 --dataset-config

@@ -2,13 +2,11 @@ from collections import defaultdict
 
 import torch
 
-from classic_hashing.models.ema import update_teacher
 from classic_hashing.models.encoders import unpack_model_outputs
 
 
 def train_epoch(
     student,
-    teacher,
     criterion,
     loader,
     optimizer,
@@ -21,8 +19,6 @@ def train_epoch(
 ):
     student.train()
     criterion.train()
-    if teacher is not None:
-        teacher.eval()
     totals = defaultdict(float)
     batches = 0
     selected_mask = selected_mask.bool().cpu()
@@ -73,12 +69,6 @@ def train_epoch(
             criterion.center_loss.update(
                 image_hash, text_hash, labels, selected
             )
-        if teacher is not None:
-            update_teacher(
-                student,
-                teacher,
-                config.robust_training.ema_teacher.momentum,
-            )
         totals["total"] += float(output.total.detach().item())
         for name, value in output.components.items():
             totals[name] += float(value.detach().item())
@@ -119,7 +109,6 @@ def format_epoch_log(epoch, epochs, metrics, selection=None):
 def checkpoint_state(
     epoch,
     student,
-    teacher,
     criterion,
     optimizer,
     best_metrics,
@@ -128,7 +117,6 @@ def checkpoint_state(
     return {
         "epoch": epoch,
         "student": student.state_dict(),
-        "teacher": teacher.state_dict() if teacher is not None else None,
         "criterion": criterion.state_dict(),
         "optimizer": optimizer.state_dict(),
         "best_metrics": dict(best_metrics),
@@ -147,13 +135,9 @@ def checkpoint_state(
     }
 
 
-def restore_checkpoint(
-    path, student, teacher, criterion, optimizer=None, device="cpu"
-):
+def restore_checkpoint(path, student, criterion, optimizer=None, device="cpu"):
     state = torch.load(path, map_location=device, weights_only=False)
     student.load_state_dict(state["student"])
-    if teacher is not None and state["teacher"] is not None:
-        teacher.load_state_dict(state["teacher"])
     criterion.load_state_dict(state["criterion"])
     if optimizer is not None:
         optimizer.load_state_dict(state["optimizer"])

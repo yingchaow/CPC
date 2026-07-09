@@ -19,17 +19,10 @@ from classic_hashing.evaluation.retrieval import (
     precision_recall_curve,
 )
 from classic_hashing.losses.composite import CompositeHashLoss
-from classic_hashing.models.ema import create_teacher
 from classic_hashing.models.encoders import DualHashModel
 from classic_hashing.training.selection import (
-    build_selected_mask,
-    collect_global_losses,
     collect_train_representations,
     knn_classification_supervision,
-    nsh_guided_soft_label_correction,
-    neighbor_refining_supervision,
-    remember_rate,
-    selection_metrics,
 )
 from classic_hashing.training.trainer import (
     checkpoint_state,
@@ -101,11 +94,6 @@ def build_components(config, device):
         num_classes=config.dataset.num_classes,
         classification_enabled=config.loss.classification.enabled,
     ).to(device)
-    teacher = (
-        create_teacher(student).to(device)
-        if config.robust_training.ema_teacher.enabled
-        else None
-    )
     criterion = CompositeHashLoss(
         config, config.dataset.num_classes, config.model.hash_bits
     ).to(device)
@@ -114,28 +102,7 @@ def build_components(config, device):
         lr=config.train.learning_rate,
         weight_decay=config.train.weight_decay,
     )
-    return student, teacher, criterion, optimizer
-
-
-def build_epoch_classification_supervision(
-    config,
-    epoch,
-    student,
-    selection_loader,
-    device,
-    sample_count,
-    criterion=None,
-):
-    weights, targets, _ = build_epoch_classification_supervision_with_metrics(
-        config,
-        epoch,
-        student,
-        selection_loader,
-        device,
-        sample_count,
-        criterion=criterion,
-    )
-    return weights, targets
+    return student, criterion, optimizer
 
 
 def build_epoch_classification_supervision_with_metrics(
@@ -145,16 +112,11 @@ def build_epoch_classification_supervision_with_metrics(
     selection_loader,
     device,
     sample_count,
-    criterion=None,
 ):
     knn = config.robust_training.knn_classification_weight
     if not knn.enabled:
         return None, None, None
-    neighbor = config.robust_training.neighbor_refining
-    warmup_epochs = (
-        neighbor.warmup_epochs if neighbor.enabled else knn.warmup_epochs
-    )
-    if epoch < warmup_epochs:
+    if epoch < knn.warmup_epochs:
         return torch.ones(sample_count, dtype=torch.float32), None, None
     image_hash, text_hash, labels = collect_train_representations(
         student,
@@ -162,19 +124,6 @@ def build_epoch_classification_supervision_with_metrics(
         device,
         sample_count,
     )
-    if neighbor.enabled:
-        weights, targets, stats = neighbor_refining_supervision(
-            image_hash,
-            text_hash,
-            labels,
-            k=neighbor.k,
-            chunk_size=neighbor.chunk_size,
-            pure_weight=neighbor.pure_weight,
-            hard_weight=neighbor.hard_weight,
-            noisy_weight=neighbor.noisy_weight,
-            device=device,
-        )
-        return weights, targets, stats
     weights, soft_targets = knn_classification_supervision(
         image_hash,
         text_hash,
@@ -184,56 +133,11 @@ def build_epoch_classification_supervision_with_metrics(
         chunk_size=knn.chunk_size,
         device=device,
     )
-    if (
-        knn.soft_label_enabled
-        and config.loss.center.self_paced.enabled
-        and config.loss.center.self_paced.soft_label_correction
-        and criterion is not None
-        and epoch >= config.loss.center.self_paced.warmup_epochs
-    ):
-        with torch.no_grad():
-            center_output = criterion.center_loss(
-                image_hash.to(device),
-                text_hash.to(device),
-                labels.to(device),
-                current_epoch=epoch,
-            )
-            nsh_weight = criterion._center_self_paced_weight(
-                center_output.per_sample,
-                epoch,
-            )
-        if nsh_weight is not None:
-            soft_targets = nsh_guided_soft_label_correction(
-                labels,
-                soft_targets,
-                nsh_weight.cpu(),
-            )
     return (
         weights,
         soft_targets if knn.soft_label_enabled else None,
         None,
     )
-
-
-def build_epoch_classification_weights(
-    config,
-    epoch,
-    student,
-    selection_loader,
-    device,
-    sample_count,
-    criterion=None,
-):
-    weights, _, _ = build_epoch_classification_supervision_with_metrics(
-        config,
-        epoch,
-        student,
-        selection_loader,
-        device,
-        sample_count,
-        criterion=criterion,
-    )
-    return weights
 
 
 def evaluate_retrieval(student, query_loader, database_loader, device):
@@ -352,43 +256,15 @@ def run_experiment(config, device=None, protocol_overrides=None):
         query_loader,
         database_loader,
     ) = build_loaders(config)
-    student, teacher, criterion, optimizer = build_components(config, device)
+    student, criterion, optimizer = build_components(config, device)
     best_metrics = {"average": float("-inf")}
     best_epoch = 0
     for epoch in range(config.train.epochs):
-        if (
-            not config.robust_training.small_loss.enabled
-            or epoch < config.robust_training.small_loss.warmup_epochs
-        ):
-            selected = torch.ones(len(train_dataset), dtype=torch.bool)
-        else:
-            sample_losses = collect_global_losses(
-                student,
-                criterion,
-                selection_loader,
-                device,
-                len(train_dataset),
-            )
-            selected = build_selected_mask(
-                sample_losses,
-                remember_rate(
-                    epoch,
-                    config.train.epochs,
-                    config.dataset.noise_rate,
-                    config.robust_training.small_loss.warmup_epochs,
-                ),
-            )
-        diagnostics = (
-            selection_metrics(
-                selected.numpy(), train_dataset.diagnostics.noise_mask
-            )
-            if config.robust_training.small_loss.enabled
-            else None
-        )
+        selected = torch.ones(len(train_dataset), dtype=torch.bool)
         (
             classification_weights,
             classification_targets,
-            neighbor_stats,
+            _,
         ) = build_epoch_classification_supervision_with_metrics(
             config,
             epoch,
@@ -396,11 +272,9 @@ def run_experiment(config, device=None, protocol_overrides=None):
             selection_loader,
             device,
             len(train_dataset),
-            criterion=criterion,
         )
         losses = train_epoch(
             student,
-            teacher,
             criterion,
             train_loader,
             optimizer,
@@ -415,22 +289,9 @@ def run_experiment(config, device=None, protocol_overrides=None):
             losses["class_weight_mean"] = float(
                 classification_weights.mean().item()
             )
-        if neighbor_stats is not None:
-            sample_count = max(1, len(train_dataset))
-            losses["nr_pure"] = (
-                neighbor_stats["pure_count"] / sample_count
-            )
-            losses["nr_hard"] = (
-                neighbor_stats["hard_count"] / sample_count
-            )
-            losses["nr_noisy"] = (
-                neighbor_stats["noisy_count"] / sample_count
-            )
         _write_log(
             log_path,
-            format_epoch_log(
-                epoch, config.train.epochs, losses, diagnostics
-            ),
+            format_epoch_log(epoch, config.train.epochs, losses),
         )
         evaluate_now = (
             (epoch + 1) % config.evaluation.interval == 0
@@ -456,7 +317,6 @@ def run_experiment(config, device=None, protocol_overrides=None):
                 checkpoint_state(
                     best_epoch,
                     student,
-                    teacher,
                     criterion,
                     optimizer,
                     best_metrics,
@@ -467,7 +327,6 @@ def run_experiment(config, device=None, protocol_overrides=None):
     restore_checkpoint(
         checkpoint_path,
         student,
-        teacher,
         criterion,
         optimizer,
         device,

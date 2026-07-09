@@ -52,41 +52,6 @@ class CompositeHashLoss(nn.Module):
         if not torch.isfinite(value).all():
             raise FloatingPointError(f"{name} contains NaN or Inf")
 
-    def selection_score(self, image_hash, text_hash, labels):
-        score = image_hash.new_zeros(image_hash.shape[0])
-        if self.config.loss.pairwise.enabled:
-            score = score + self.config.loss.pairwise.weight * (
-                pairwise_logistic_loss(
-                    image_hash,
-                    text_hash,
-                    labels,
-                    mode=self.config.loss.pairwise.mode,
-                    margin=self.config.loss.pairwise.margin,
-                    shift=self.config.loss.pairwise.shift,
-                    temperature=self.config.loss.pairwise.temperature,
-                    similarity=self.config.loss.pairwise.similarity,
-                    hard_negative_enabled=(
-                        self.config.loss.pairwise.hard_negative.enabled
-                    ),
-                    hard_negative_alpha=(
-                        self.config.loss.pairwise.hard_negative.alpha
-                    ),
-                    hard_negative_margin=(
-                        self.config.loss.pairwise.hard_negative.margin
-                    ),
-                    hard_negative_label_threshold=(
-                        self.config.loss.pairwise.hard_negative
-                        .label_threshold
-                    ),
-                ).per_sample
-            )
-        if self.config.loss.center.enabled:
-            score = score + self.config.loss.center.weight * (
-                self.center_loss(image_hash, text_hash, labels).per_sample
-            )
-        self._check("selection_score", score)
-        return score
-
     def forward(
         self,
         image_hash,
@@ -149,27 +114,7 @@ class CompositeHashLoss(nn.Module):
                 reliability=center_reliability,
                 current_epoch=current_epoch,
             )
-            center_weight = self._center_self_paced_weight(
-                center_output.per_sample,
-                current_epoch,
-            )
-            if center_weight is not None:
-                center_reliability = self._combine_reliability(
-                    center_reliability,
-                    center_weight,
-                )
-                center_output = self.center_loss(
-                    image_hash[selected],
-                    text_hash[selected],
-                    labels[selected],
-                    reliability=center_reliability,
-                    current_epoch=current_epoch,
-                )
-                components["center"] = (
-                    center_output.per_sample * center_weight
-                ).mean()
-            else:
-                components["center"] = center_output.mean
+            components["center"] = center_output.mean
         if self.config.loss.quantization.enabled:
             components["quantization"] = quantization_loss(
                 image_hash, text_hash
@@ -250,36 +195,3 @@ class CompositeHashLoss(nn.Module):
             labels.float() * targets.float()
         ).sum(dim=1) / positive_count
         return reliability.clamp(0.0, 1.0).detach()
-
-    def _center_self_paced_weight(self, per_sample_loss, current_epoch):
-        self_paced = self.config.loss.center.self_paced
-        if not self_paced.enabled:
-            return None
-        if (
-            current_epoch is not None
-            and current_epoch < self_paced.warmup_epochs
-        ):
-            return None
-        gamma = self._center_self_paced_gamma(current_epoch)
-        return (1.0 - per_sample_loss.detach() / gamma).clamp(0.0, 1.0)
-
-    def _center_self_paced_gamma(self, current_epoch):
-        self_paced = self.config.loss.center.self_paced
-        if current_epoch is None:
-            return float(self_paced.gamma_start)
-        warmup = self_paced.warmup_epochs
-        span = max(1, self.config.train.epochs - warmup - 1)
-        progress = (current_epoch - warmup) / span
-        progress = max(0.0, min(1.0, progress))
-        return float(
-            self_paced.gamma_start
-            + (self_paced.gamma_end - self_paced.gamma_start)
-            * progress
-        )
-
-    @staticmethod
-    def _combine_reliability(left, right):
-        right = right.detach()
-        if left is None:
-            return right
-        return (left * right.to(device=left.device, dtype=left.dtype)).detach()

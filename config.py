@@ -165,28 +165,9 @@ def validate_config(config, protocol_overrides=None):
     for key, value in dual_center_defaults.items():
         if key not in dual_center:
             dual_center[key] = value
-    self_paced_defaults = {
-        "enabled": False,
-        "warmup_epochs": 5,
-        "gamma_start": 0.3,
-        "gamma_end": 1.2,
-        "soft_label_correction": False,
-    }
-    if "self_paced" not in config.loss.center:
-        config.loss.center.self_paced = ConfigNode()
-    center_self_paced = config.loss.center.self_paced
-    for key, value in self_paced_defaults.items():
-        if key not in center_self_paced:
-            center_self_paced[key] = value
     if "classification" not in config.loss:
         config.loss.classification = ConfigNode(
             {"enabled": False, "weight": 1.0}
-        )
-    if "balance" not in config.loss:
-        config.loss.balance = ConfigNode({"enabled": False, "weight": 0.01})
-    if "ema_consistency" not in config.loss:
-        config.loss.ema_consistency = ConfigNode(
-            {"enabled": False, "weight": 0.2}
         )
     if "cmp" not in config.loss:
         config.loss.cmp = ConfigNode(
@@ -206,21 +187,6 @@ def validate_config(config, protocol_overrides=None):
     for key, value in knn_defaults.items():
         if key not in knn_weight:
             knn_weight[key] = value
-    neighbor_defaults = {
-        "enabled": False,
-        "warmup_epochs": 5,
-        "k": 20,
-        "chunk_size": 1024,
-        "pure_weight": 1.0,
-        "hard_weight": 0.5,
-        "noisy_weight": 0.2,
-    }
-    if "neighbor_refining" not in config.robust_training:
-        config.robust_training.neighbor_refining = ConfigNode()
-    neighbor_refining = config.robust_training.neighbor_refining
-    for key, value in neighbor_defaults.items():
-        if key not in neighbor_refining:
-            neighbor_refining[key] = value
     if config.dataset.query_size < 1:
         raise ValueError("dataset.query_size must be positive")
     if config.dataset.train_size < 1:
@@ -303,30 +269,16 @@ def validate_config(config, protocol_overrides=None):
         raise ValueError(
             "center.dual_center.hash_quantization_weight must be nonnegative"
         )
-    if center_self_paced.warmup_epochs < 0:
-        raise ValueError(
-            "center.self_paced.warmup_epochs must be nonnegative"
-        )
-    if center_self_paced.gamma_start <= 0:
-        raise ValueError(
-            "center.self_paced.gamma_start must be positive"
-        )
-    if center_self_paced.gamma_end <= 0:
-        raise ValueError("center.self_paced.gamma_end must be positive")
     if config.loss.cmp.weight < 0:
         raise ValueError("loss.cmp.weight must be nonnegative")
     if config.loss.cmp.margin < 0.0 or config.loss.cmp.margin > 2.0:
         raise ValueError("loss.cmp.margin must be between 0 and 2")
-    if config.robust_training.small_loss.schedule != "mgsh_linear":
-        raise ValueError("small_loss.schedule must be mgsh_linear")
-    if (
-        config.loss.ema_consistency.enabled
-        and not config.robust_training.ema_teacher.enabled
-    ):
-        raise ValueError("EMA consistency requires EMA Teacher")
-    if config.loss.balance.enabled:
+    if "balance" in config.loss and config.loss.balance.enabled:
         raise ValueError("balance loss has been removed from this build")
-    if config.loss.ema_consistency.enabled:
+    if (
+        "ema_consistency" in config.loss
+        and config.loss.ema_consistency.enabled
+    ):
         raise ValueError(
             "EMA consistency loss has been removed from this build"
         )
@@ -337,12 +289,6 @@ def validate_config(config, protocol_overrides=None):
         raise ValueError(
             "semantic_multi_center has been removed from this build"
         )
-    if (
-        config.robust_training.small_loss.enabled
-        and not config.loss.pairwise.enabled
-        and not config.loss.center.enabled
-    ):
-        raise ValueError("Small-loss requires a supervised ranking signal")
     if knn_weight.enabled and not config.loss.classification.enabled:
         raise ValueError(
             "kNN classification weight requires classification loss"
@@ -363,24 +309,6 @@ def validate_config(config, protocol_overrides=None):
         raise ValueError(
             "knn_classification_weight.chunk_size must be positive"
         )
-    if neighbor_refining.enabled and not config.loss.classification.enabled:
-        raise ValueError("neighbor refining requires classification loss")
-    if neighbor_refining.enabled and not knn_weight.enabled:
-        raise ValueError("neighbor refining requires kNN classification")
-    if neighbor_refining.warmup_epochs < 0:
-        raise ValueError(
-            "neighbor_refining.warmup_epochs must be nonnegative"
-        )
-    if neighbor_refining.k < 1:
-        raise ValueError("neighbor_refining.k must be positive")
-    if neighbor_refining.chunk_size < 1:
-        raise ValueError("neighbor_refining.chunk_size must be positive")
-    for name in ("pure_weight", "hard_weight", "noisy_weight"):
-        value = getattr(neighbor_refining, name)
-        if not 0.0 <= value <= 1.0:
-            raise ValueError(
-                f"neighbor_refining.{name} must be between 0 and 1"
-            )
     if config.loss.center.update not in ("ema", "learnable"):
         raise ValueError("center.update must be ema or learnable")
     if (
