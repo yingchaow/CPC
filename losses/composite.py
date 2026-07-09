@@ -7,11 +7,7 @@ import torch.nn.functional as F
 from .center import PrototypeCenterLoss
 from .cmp import cmp_margin_loss
 from .pairwise import pairwise_logistic_loss
-from .regularization import (
-    bit_balance_loss,
-    ema_consistency_loss,
-    quantization_loss,
-)
+from .regularization import quantization_loss
 
 
 @dataclass
@@ -42,28 +38,9 @@ class CompositeHashLoss(nn.Module):
             config.loss.center.dual_center.warmup_epochs,
             config.loss.center.dual_center.top_k,
             config.loss.center.dual_center.reliability_enabled,
-            config.loss.center.dual_center.positive_pull_weight,
-            config.loss.center.dual_center.positive_centers,
-            config.loss.center.dual_center.positive_diversity_weight,
             config.loss.center.dual_center.negative_centers,
             config.loss.center.dual_center.diversity_weight,
-            config.loss.center.dual_center.prototype_separation_weight,
-            config.loss.center.dual_center.label_graph_weight,
-            config.loss.center.dual_center.label_graph_top_k,
             config.loss.center.dual_center.hash_quantization_weight,
-            config.loss.center.semantic_multi_center.enabled,
-            config.loss.center.semantic_multi_center.centers_per_class,
-            config.loss.center.semantic_multi_center.positive_weight,
-            config.loss.center.semantic_multi_center.negative_weight,
-            config.loss.center.semantic_multi_center.negative_margin,
-            config.loss.center.semantic_multi_center.negative_top_k,
-            config.loss.center.semantic_multi_center.intra_weight,
-            (
-                config.loss.center.semantic_multi_center
-                .intra_target_similarity
-            ),
-            config.loss.center.semantic_multi_center.label_graph_weight,
-            config.loss.center.semantic_multi_center.label_graph_top_k,
         )
 
     @staticmethod
@@ -84,32 +61,10 @@ class CompositeHashLoss(nn.Module):
                     text_hash,
                     labels,
                     mode=self.config.loss.pairwise.mode,
-                    gce_q=self.config.loss.pairwise.gce_q,
-                    reverse_weight=(
-                        self.config.loss.pairwise.reverse_weight
-                    ),
                     margin=self.config.loss.pairwise.margin,
                     shift=self.config.loss.pairwise.shift,
                     temperature=self.config.loss.pairwise.temperature,
                     similarity=self.config.loss.pairwise.similarity,
-                    similarity_type=(
-                        self.config.loss.pairwise.similarity_type
-                    ),
-                    confidence_top_k=(
-                        self.config.loss.pairwise.confidence_top_k
-                    ),
-                    blend_lambda=(
-                        self.config.loss.pairwise.blend_lambda
-                    ),
-                    hard_similarity=(
-                        self.config.loss.pairwise.hard_similarity
-                    ),
-                    second_similarity=(
-                        self.config.loss.pairwise.second_similarity
-                    ),
-                    soft_similarity=(
-                        self.config.loss.pairwise.soft_similarity
-                    ),
                     hard_negative_enabled=(
                         self.config.loss.pairwise.hard_negative.enabled
                     ),
@@ -138,8 +93,6 @@ class CompositeHashLoss(nn.Module):
         text_hash,
         labels,
         selected,
-        teacher_image=None,
-        teacher_text=None,
         image_logits=None,
         text_logits=None,
         classification_weights=None,
@@ -153,8 +106,6 @@ class CompositeHashLoss(nn.Module):
                 "pairwise",
                 "center",
                 "quantization",
-                "balance",
-                "ema_consistency",
                 "classification",
                 "cmp",
             )
@@ -165,32 +116,10 @@ class CompositeHashLoss(nn.Module):
                 text_hash[selected],
                 labels[selected],
                 mode=self.config.loss.pairwise.mode,
-                gce_q=self.config.loss.pairwise.gce_q,
-                reverse_weight=self.config.loss.pairwise.reverse_weight,
                 margin=self.config.loss.pairwise.margin,
                 shift=self.config.loss.pairwise.shift,
                 temperature=self.config.loss.pairwise.temperature,
                 similarity=self.config.loss.pairwise.similarity,
-                similarity_type=self.config.loss.pairwise.similarity_type,
-                labels_soft=(
-                    classification_targets[selected]
-                    if classification_targets is not None
-                    else None
-                ),
-                confidence=(
-                    classification_weights[selected]
-                    if classification_weights is not None
-                    else None
-                ),
-                confidence_top_k=(
-                    self.config.loss.pairwise.confidence_top_k
-                ),
-                blend_lambda=self.config.loss.pairwise.blend_lambda,
-                hard_similarity=self.config.loss.pairwise.hard_similarity,
-                second_similarity=(
-                    self.config.loss.pairwise.second_similarity
-                ),
-                soft_similarity=self.config.loss.pairwise.soft_similarity,
                 hard_negative_enabled=(
                     self.config.loss.pairwise.hard_negative.enabled
                 ),
@@ -244,16 +173,6 @@ class CompositeHashLoss(nn.Module):
         if self.config.loss.quantization.enabled:
             components["quantization"] = quantization_loss(
                 image_hash, text_hash
-            )
-        if self.config.loss.balance.enabled:
-            components["balance"] = bit_balance_loss(image_hash, text_hash)
-        if self.config.loss.ema_consistency.enabled:
-            components["ema_consistency"] = ema_consistency_loss(
-                image_hash,
-                text_hash,
-                teacher_image,
-                teacher_text,
-                ~selected,
             )
         if self.config.loss.classification.enabled:
             if image_logits is None or text_logits is None:

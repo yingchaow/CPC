@@ -52,24 +52,15 @@ def train_epoch(
             image_logits,
             text_logits,
         ) = unpack_model_outputs(student(image, text))
-        if teacher is None:
-            teacher_image = teacher_text = None
-        else:
-            with torch.no_grad():
-                teacher_image, teacher_text, _, _ = unpack_model_outputs(
-                    teacher(image, text)
-                )
         output = criterion(
             image_hash,
             text_hash,
             labels,
             selected,
-            teacher_image,
-            teacher_text,
-            image_logits,
-            text_logits,
-            batch_classification_weights,
-            batch_classification_targets,
+            image_logits=image_logits,
+            text_logits=text_logits,
+            classification_weights=batch_classification_weights,
+            classification_targets=batch_classification_targets,
             current_epoch=epoch,
         )
         optimizer.zero_grad(set_to_none=True)
@@ -104,8 +95,6 @@ def format_epoch_log(epoch, epochs, metrics, selection=None):
         "pairwise",
         "center",
         "quantization",
-        "balance",
-        "ema_consistency",
         "classification",
         "cmp",
         "class_weight_mean",

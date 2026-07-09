@@ -1,5 +1,5 @@
 experiment:
-  name: best_checkpoint
+  name: best_checkpoint_test
   seed: 42
   output_dir: classic_hashing/outputs
 model:
@@ -36,8 +36,6 @@ loss:
     enabled: true
     mode: jaccard_contrast
     weight: 0.7
-    gce_q: 0.7
-    reverse_weight: 0.1
     margin: 0.15
     shift: 0.8
     temperature: 1.0
@@ -78,6 +76,4 @@ loss:
   cmp: {enabled: true, weight: 0.1, margin: 0.3}
   classification: {enabled: true, weight: 1.0}
   quantization: {enabled: true, weight: 2.5}
-  balance: {enabled: false, weight: 0.01}
-  ema_consistency: {enabled: false, weight: 0.2}
 evaluation: {interval: 1, plot_pr_curve: false, pr_curve_points: 100}

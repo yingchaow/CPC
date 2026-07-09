@@ -120,19 +120,11 @@ def validate_dataset_section(dataset, protocol_overrides=None):
 def validate_config(config, protocol_overrides=None):
     validate_dataset_section(config.dataset, protocol_overrides)
     pairwise_defaults = {
-        "mode": "bce",
-        "gce_q": 0.7,
-        "reverse_weight": 0.1,
+        "mode": "jaccard_contrast",
         "margin": 0.15,
         "shift": 0.8,
         "temperature": 1.0,
         "similarity": "jaccard",
-        "similarity_type": "hard_jaccard",
-        "hard_similarity": "jaccard",
-        "second_similarity": "dice",
-        "soft_similarity": "jaccard",
-        "confidence_top_k": 3,
-        "blend_lambda": 0.5,
     }
     for key, value in pairwise_defaults.items():
         if key not in config.loss.pairwise:
@@ -163,14 +155,8 @@ def validate_config(config, protocol_overrides=None):
         "warmup_epochs": 0,
         "top_k": 0,
         "reliability_enabled": False,
-        "positive_pull_weight": 0.0,
-        "positive_centers": 1,
-        "positive_diversity_weight": 0.0,
         "negative_centers": 1,
         "diversity_weight": 0.0,
-        "prototype_separation_weight": 0.0,
-        "label_graph_weight": 0.0,
-        "label_graph_top_k": 0,
         "hash_quantization_weight": 0.0,
     }
     if "dual_center" not in config.loss.center:
@@ -179,24 +165,6 @@ def validate_config(config, protocol_overrides=None):
     for key, value in dual_center_defaults.items():
         if key not in dual_center:
             dual_center[key] = value
-    semantic_multi_center_defaults = {
-        "enabled": False,
-        "centers_per_class": 1,
-        "positive_weight": 1.0,
-        "negative_weight": 0.0,
-        "negative_margin": 0.2,
-        "negative_top_k": 0,
-        "intra_weight": 0.0,
-        "intra_target_similarity": 0.4,
-        "label_graph_weight": 0.0,
-        "label_graph_top_k": 0,
-    }
-    if "semantic_multi_center" not in config.loss.center:
-        config.loss.center.semantic_multi_center = ConfigNode()
-    semantic_multi_center = config.loss.center.semantic_multi_center
-    for key, value in semantic_multi_center_defaults.items():
-        if key not in semantic_multi_center:
-            semantic_multi_center[key] = value
     self_paced_defaults = {
         "enabled": False,
         "warmup_epochs": 5,
@@ -213,6 +181,12 @@ def validate_config(config, protocol_overrides=None):
     if "classification" not in config.loss:
         config.loss.classification = ConfigNode(
             {"enabled": False, "weight": 1.0}
+        )
+    if "balance" not in config.loss:
+        config.loss.balance = ConfigNode({"enabled": False, "weight": 0.01})
+    if "ema_consistency" not in config.loss:
+        config.loss.ema_consistency = ConfigNode(
+            {"enabled": False, "weight": 0.2}
         )
     if "cmp" not in config.loss:
         config.loss.cmp = ConfigNode(
@@ -259,22 +233,8 @@ def validate_config(config, protocol_overrides=None):
         raise ValueError("model.hash_bits must be one of 16, 32, 64, 128")
     if config.dataset.noise_rate not in (0.2, 0.5, 0.8):
         raise ValueError("dataset.noise_rate must be one of 0.2, 0.5, 0.8")
-    if config.loss.pairwise.mode not in (
-        "bce",
-        "gce",
-        "symmetric_bce",
-        "jaccard_contrast",
-    ):
-        raise ValueError(
-            "loss.pairwise.mode must be bce, gce, symmetric_bce, "
-            "or jaccard_contrast"
-        )
-    if hard_negative.enabled and config.loss.pairwise.mode != (
-        "jaccard_contrast"
-    ):
-        raise ValueError(
-            "hard_negative requires loss.pairwise.mode=jaccard_contrast"
-        )
+    if config.loss.pairwise.mode != "jaccard_contrast":
+        raise ValueError("loss.pairwise.mode must be jaccard_contrast")
     if config.loss.pairwise.similarity not in (
         "jaccard",
         "dice",
@@ -286,58 +246,6 @@ def validate_config(config, protocol_overrides=None):
             "loss.pairwise.similarity must be jaccard, dice, cosine, "
             "overlap, or binary"
         )
-    if config.loss.pairwise.similarity_type not in (
-        "hard_jaccard",
-        "hard_blend",
-        "soft_jaccard",
-        "blend_jaccard",
-        "blend_soft",
-    ):
-        raise ValueError(
-            "loss.pairwise.similarity_type must be hard_jaccard, "
-            "hard_blend, soft_jaccard, blend_jaccard, or blend_soft"
-        )
-    if config.loss.pairwise.hard_similarity not in (
-        "jaccard",
-        "dice",
-        "cosine",
-        "overlap",
-        "binary",
-    ):
-        raise ValueError(
-            "loss.pairwise.hard_similarity must be jaccard, dice, "
-            "cosine, overlap, or binary"
-        )
-    if config.loss.pairwise.second_similarity not in (
-        "jaccard",
-        "dice",
-        "cosine",
-        "overlap",
-        "binary",
-    ):
-        raise ValueError(
-            "loss.pairwise.second_similarity must be jaccard, dice, "
-            "cosine, overlap, or binary"
-        )
-    if config.loss.pairwise.soft_similarity not in (
-        "jaccard",
-        "dice",
-        "cosine",
-        "overlap",
-    ):
-        raise ValueError(
-            "loss.pairwise.soft_similarity must be jaccard, dice, "
-            "cosine, or overlap"
-        )
-    if config.loss.pairwise.confidence_top_k < 1:
-        raise ValueError(
-            "loss.pairwise.confidence_top_k must be positive"
-        )
-    if (
-        config.loss.pairwise.blend_lambda < 0.0
-        or config.loss.pairwise.blend_lambda > 1.0
-    ):
-        raise ValueError("loss.pairwise.blend_lambda must be between 0 and 1")
     if hard_negative.alpha < 0:
         raise ValueError("hard_negative.alpha must be nonnegative")
     if hard_negative.margin < 0.0 or hard_negative.margin > 1.0:
@@ -383,20 +291,6 @@ def validate_config(config, protocol_overrides=None):
         )
     if dual_center.top_k < 0:
         raise ValueError("center.dual_center.top_k must be nonnegative")
-    if dual_center.positive_pull_weight < 0:
-        raise ValueError(
-            "center.dual_center.positive_pull_weight "
-            "must be nonnegative"
-        )
-    if dual_center.positive_centers < 1:
-        raise ValueError(
-            "center.dual_center.positive_centers must be positive"
-        )
-    if dual_center.positive_diversity_weight < 0:
-        raise ValueError(
-            "center.dual_center.positive_diversity_weight "
-            "must be nonnegative"
-        )
     if dual_center.negative_centers < 1:
         raise ValueError(
             "center.dual_center.negative_centers must be positive"
@@ -405,52 +299,9 @@ def validate_config(config, protocol_overrides=None):
         raise ValueError(
             "center.dual_center.diversity_weight must be nonnegative"
         )
-    if dual_center.prototype_separation_weight < 0:
-        raise ValueError(
-            "center.dual_center.prototype_separation_weight "
-            "must be nonnegative"
-        )
-    if dual_center.label_graph_weight < 0:
-        raise ValueError(
-            "center.dual_center.label_graph_weight must be nonnegative"
-        )
-    if dual_center.label_graph_top_k < 0:
-        raise ValueError(
-            "center.dual_center.label_graph_top_k must be nonnegative"
-        )
     if dual_center.hash_quantization_weight < 0:
         raise ValueError(
             "center.dual_center.hash_quantization_weight must be nonnegative"
-        )
-    if semantic_multi_center.centers_per_class < 1:
-        raise ValueError(
-            "center.semantic_multi_center.centers_per_class must be positive"
-        )
-    for name in (
-        "positive_weight",
-        "negative_weight",
-        "negative_margin",
-        "intra_weight",
-        "label_graph_weight",
-    ):
-        if getattr(semantic_multi_center, name) < 0:
-            raise ValueError(
-                f"center.semantic_multi_center.{name} must be nonnegative"
-            )
-    if semantic_multi_center.negative_top_k < 0:
-        raise ValueError(
-            "center.semantic_multi_center.negative_top_k "
-            "must be nonnegative"
-        )
-    if semantic_multi_center.label_graph_top_k < 0:
-        raise ValueError(
-            "center.semantic_multi_center.label_graph_top_k "
-            "must be nonnegative"
-        )
-    if not -1.0 <= semantic_multi_center.intra_target_similarity <= 1.0:
-        raise ValueError(
-            "center.semantic_multi_center.intra_target_similarity "
-            "must be between -1 and 1"
         )
     if center_self_paced.warmup_epochs < 0:
         raise ValueError(
@@ -473,6 +324,19 @@ def validate_config(config, protocol_overrides=None):
         and not config.robust_training.ema_teacher.enabled
     ):
         raise ValueError("EMA consistency requires EMA Teacher")
+    if config.loss.balance.enabled:
+        raise ValueError("balance loss has been removed from this build")
+    if config.loss.ema_consistency.enabled:
+        raise ValueError(
+            "EMA consistency loss has been removed from this build"
+        )
+    if (
+        "semantic_multi_center" in config.loss.center
+        and config.loss.center.semantic_multi_center.enabled
+    ):
+        raise ValueError(
+            "semantic_multi_center has been removed from this build"
+        )
     if (
         config.robust_training.small_loss.enabled
         and not config.loss.pairwise.enabled
@@ -530,39 +394,11 @@ def validate_config(config, protocol_overrides=None):
         raise ValueError(
             "dual_center requires center.update=learnable"
         )
-    if (
-        dual_center.positive_centers > 1
-        and config.loss.center.update != "learnable"
-    ):
-        raise ValueError(
-            "positive multi-center requires center.update=learnable"
-        )
-    if (
-        semantic_multi_center.enabled
-        and config.loss.center.update != "learnable"
-    ):
-        raise ValueError(
-            "semantic_multi_center requires center.update=learnable"
-        )
-    if semantic_multi_center.enabled and dual_center.enabled:
-        raise ValueError(
-            "semantic_multi_center cannot be combined with dual_center"
-        )
-    if (
-        semantic_multi_center.enabled
-        and center_hard_negative.enabled
-    ):
-        raise ValueError(
-            "semantic_multi_center cannot be combined with "
-            "center.hard_negative"
-        )
     if not any(
         (
             config.loss.pairwise.enabled,
             config.loss.center.enabled,
             config.loss.quantization.enabled,
-            config.loss.balance.enabled,
-            config.loss.ema_consistency.enabled,
             config.loss.classification.enabled,
             config.loss.cmp.enabled,
         )

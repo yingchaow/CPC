@@ -510,12 +510,7 @@ def build_argument_parser():
     parser.add_argument("--experiment-name")
     parser.add_argument(
         "--pairwise-mode",
-        choices=(
-            "bce",
-            "gce",
-            "symmetric_bce",
-            "jaccard_contrast",
-        ),
+        choices=("jaccard_contrast",),
     )
     parser.add_argument("--device", default=None)
     return parser
