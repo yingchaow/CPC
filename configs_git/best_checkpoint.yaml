@@ -1,5 +1,5 @@
 experiment:
-  name: best_checkpoint_test
+  name: best_checkpoint_test_5_semantic_hash_decoupling
   seed: 42
   output_dir: classic_hashing/outputs
 model:
@@ -16,9 +16,10 @@ train:
 robust_training:
   knn_classification_weight:
     enabled: true
-    warmup_epochs: 5
+    warmup_epochs: 1
     k: 20
     gamma: 0.5
+    rise_momentum: 0.9
     chunk_size: 1024
     soft_label_enabled: true
 loss:

@@ -22,6 +22,7 @@ from classic_hashing.losses.composite import CompositeHashLoss
 from classic_hashing.models.encoders import DualHashModel
 from classic_hashing.training.selection import (
     collect_train_representations,
+    conservative_reliability,
     knn_classification_supervision,
 )
 from classic_hashing.training.trainer import (
@@ -112,31 +113,41 @@ def build_epoch_classification_supervision_with_metrics(
     selection_loader,
     device,
     sample_count,
+    previous_weights=None,
 ):
     knn = config.robust_training.knn_classification_weight
     if not knn.enabled:
         return None, None, None
     if epoch < knn.warmup_epochs:
         return torch.ones(sample_count, dtype=torch.float32), None, None
-    image_hash, text_hash, labels = collect_train_representations(
+    image_semantic, text_semantic, labels = collect_train_representations(
         student,
         selection_loader,
         device,
         sample_count,
     )
-    weights, soft_targets = knn_classification_supervision(
-        image_hash,
-        text_hash,
+    raw_weights, neighbor_targets = knn_classification_supervision(
+        image_semantic,
+        text_semantic,
         labels,
         k=knn.k,
         gamma=knn.gamma,
         chunk_size=knn.chunk_size,
         device=device,
     )
+    weights = conservative_reliability(
+        raw_weights,
+        previous_weights,
+        knn.rise_momentum,
+    )
+    soft_targets = (
+        weights.unsqueeze(1) * labels
+        + (1.0 - weights).unsqueeze(1) * neighbor_targets
+    ).clamp(0.0, 1.0)
     return (
         weights,
         soft_targets if knn.soft_label_enabled else None,
-        None,
+        raw_weights,
     )
 
 
@@ -259,12 +270,13 @@ def run_experiment(config, device=None, protocol_overrides=None):
     student, criterion, optimizer = build_components(config, device)
     best_metrics = {"average": float("-inf")}
     best_epoch = 0
+    previous_classification_weights = None
     for epoch in range(config.train.epochs):
         selected = torch.ones(len(train_dataset), dtype=torch.bool)
         (
             classification_weights,
             classification_targets,
-            _,
+            raw_classification_weights,
         ) = build_epoch_classification_supervision_with_metrics(
             config,
             epoch,
@@ -272,7 +284,10 @@ def run_experiment(config, device=None, protocol_overrides=None):
             selection_loader,
             device,
             len(train_dataset),
+            previous_weights=previous_classification_weights,
         )
+        if raw_classification_weights is not None:
+            previous_classification_weights = classification_weights
         losses = train_epoch(
             student,
             criterion,
@@ -288,6 +303,10 @@ def run_experiment(config, device=None, protocol_overrides=None):
         if classification_weights is not None:
             losses["class_weight_mean"] = float(
                 classification_weights.mean().item()
+            )
+        if raw_classification_weights is not None:
+            losses["raw_class_weight_mean"] = float(
+                raw_classification_weights.mean().item()
             )
         _write_log(
             log_path,

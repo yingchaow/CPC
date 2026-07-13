@@ -17,6 +17,24 @@ def jaccard_similarity(labels):
     return intersection / union.clamp_min(1e-8)
 
 
+def reliability_pair_weights(reference, sample_weights=None):
+    sample_count = reference.shape[0]
+    if sample_weights is None:
+        return reference.new_ones((sample_count, sample_count))
+    sample_weights = sample_weights.detach().to(
+        device=reference.device,
+        dtype=reference.dtype,
+    )
+    if sample_weights.shape != (sample_count,):
+        raise ValueError("sample_weights must have one value per sample")
+    if (sample_weights < 0).any():
+        raise ValueError("sample_weights must be nonnegative")
+    pair_weights = torch.sqrt(
+        sample_weights.unsqueeze(1) * sample_weights.unsqueeze(0)
+    )
+    return pair_weights / pair_weights.mean().clamp_min(1e-8)
+
+
 def jaccard_contrast_loss(
     image_hash,
     text_hash,
@@ -24,9 +42,10 @@ def jaccard_contrast_loss(
     margin=0.15,
     shift=0.8,
     temperature=1.0,
+    sample_weights=None,
 ):
     target = jaccard_similarity(labels)
-    pair_weight = labels.new_ones((labels.shape[0], labels.shape[0]))
+    pair_weight = reliability_pair_weights(labels, sample_weights)
     hash_similarity = image_hash @ text_hash.t()
     diagonal = hash_similarity.diag()
     text_threshold = diagonal.unsqueeze(1) - margin
@@ -80,6 +99,7 @@ def pairwise_logistic_loss(
     margin=0.15,
     shift=0.8,
     temperature=1.0,
+    sample_weights=None,
 ):
     if mode != "jaccard_contrast":
         raise ValueError("pairwise loss only supports jaccard_contrast")
@@ -90,4 +110,5 @@ def pairwise_logistic_loss(
         margin=margin,
         shift=shift,
         temperature=temperature,
+        sample_weights=sample_weights,
     )

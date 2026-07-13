@@ -75,6 +75,23 @@ class CompositeHashLoss(nn.Module):
         current_epoch=None,
     ):
         selected = selected.bool()
+        reliability = None
+        if classification_weights is not None:
+            reliability = classification_weights.detach().to(
+                device=image_hash.device,
+                dtype=image_hash.dtype,
+            )
+            if reliability.shape != selected.shape:
+                raise ValueError(
+                    "classification_weights must have one value per sample"
+                )
+            if (reliability < 0).any():
+                raise ValueError(
+                    "classification_weights must be nonnegative"
+                )
+        selected_reliability = (
+            reliability[selected] if reliability is not None else None
+        )
         components = {
             name: self._zero(image_hash)
             for name in (
@@ -94,24 +111,20 @@ class CompositeHashLoss(nn.Module):
                 margin=self.config.loss.pairwise.margin,
                 shift=self.config.loss.pairwise.shift,
                 temperature=self.config.loss.pairwise.temperature,
+                sample_weights=selected_reliability,
             ).mean
         if self.config.loss.center.enabled and selected.any():
-            center_reliability = self._center_reliability(
-                labels[selected],
-                (
-                    classification_targets[selected]
-                    if classification_targets is not None
-                    else None
-                ),
-            )
             center_output = self.center_loss(
                 image_hash[selected],
                 text_hash[selected],
                 labels[selected],
-                reliability=center_reliability,
+                reliability=selected_reliability,
                 current_epoch=current_epoch,
             )
-            components["center"] = center_output.mean
+            components["center"] = self._weighted_mean(
+                center_output.per_sample,
+                selected_reliability,
+            )
         if self.config.loss.quantization.enabled:
             components["quantization"] = quantization_loss(
                 image_hash, text_hash
@@ -146,30 +159,21 @@ class CompositeHashLoss(nn.Module):
             per_sample_classification = (
                 image_classification + text_classification
             ) / 2.0
-            if classification_weights is None:
+            if reliability is None:
                 components["classification"] = (
                     per_sample_classification.mean()
                 )
             else:
-                classification_weights = classification_weights.to(
-                    device=per_sample_classification.device,
-                    dtype=per_sample_classification.dtype,
-                )
-                if classification_weights.shape != (
-                    per_sample_classification.shape
-                ):
-                    raise ValueError(
-                        "classification weights must have one value "
-                        "per sample"
-                    )
                 components["classification"] = (
-                    per_sample_classification * classification_weights
+                    per_sample_classification * reliability
                 ).mean()
         if self.config.loss.cmp.enabled and selected.any():
             components["cmp"] = cmp_margin_loss(
                 image_hash[selected],
                 text_hash[selected],
+                labels[selected],
                 margin=self.config.loss.cmp.margin,
+                sample_weights=selected_reliability,
             ).mean
         total = self._zero(image_hash)
         for name in components:
@@ -180,15 +184,7 @@ class CompositeHashLoss(nn.Module):
         return CompositeLossOutput(total, components)
 
     @staticmethod
-    def _center_reliability(labels, classification_targets):
-        if classification_targets is None:
-            return None
-        targets = classification_targets.to(
-            device=labels.device,
-            dtype=labels.dtype,
-        )
-        positive_count = labels.float().sum(dim=1).clamp_min(1.0)
-        reliability = (
-            labels.float() * targets.float()
-        ).sum(dim=1) / positive_count
-        return reliability.clamp(0.0, 1.0).detach()
+    def _weighted_mean(values, weights):
+        if weights is None:
+            return values.mean()
+        return (values * weights).sum() / weights.sum().clamp_min(1e-8)

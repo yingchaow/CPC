@@ -1,25 +1,25 @@
 import torch
 import torch.nn.functional as F
 
-from classic_hashing.models.encoders import unpack_model_outputs
+from classic_hashing.models.encoders import unpack_semantic_features
 
 
 @torch.no_grad()
 def knn_classification_supervision(
-    image_hash,
-    text_hash,
+    image_features,
+    text_features,
     labels,
     k=20,
     gamma=0.5,
     chunk_size=1024,
     device=None,
 ):
-    compute_device = torch.device(device or image_hash.device)
-    image_hash = F.normalize(
-        image_hash.float().to(compute_device), dim=1
+    compute_device = torch.device(device or image_features.device)
+    image_features = F.normalize(
+        image_features.float().to(compute_device), dim=1
     )
-    text_hash = F.normalize(
-        text_hash.float().to(compute_device), dim=1
+    text_features = F.normalize(
+        text_features.float().to(compute_device), dim=1
     )
     labels = labels.float().to(compute_device)
     sample_count = len(labels)
@@ -27,12 +27,12 @@ def knn_classification_supervision(
         return torch.ones(sample_count), labels.cpu()
     k = min(int(k), sample_count - 1)
     weights = torch.empty(sample_count, device=compute_device)
-    soft_targets = torch.empty_like(labels)
+    neighbor_targets = torch.empty_like(labels)
     for start in range(0, sample_count, chunk_size):
         end = min(start + chunk_size, sample_count)
         similarity = (
-            image_hash[start:end] @ image_hash.t()
-            + text_hash[start:end] @ text_hash.t()
+            image_features[start:end] @ image_features.t()
+            + text_features[start:end] @ text_features.t()
         ) / 2.0
         row = torch.arange(end - start, device=compute_device)
         column = torch.arange(start, end, device=compute_device)
@@ -54,47 +54,68 @@ def knn_classification_supervision(
         ).clamp(0.0, 1.0)
         batch_weights = gamma + (1.0 - gamma) * consistency
         weights[start:end] = batch_weights
-        soft_targets[start:end] = (
-            batch_weights.unsqueeze(1) * labels[start:end]
-            + (1.0 - batch_weights).unsqueeze(1) * aggregate
-        )
+        neighbor_targets[start:end] = aggregate
     return (
         weights.clamp(gamma, 1.0).cpu(),
-        soft_targets.clamp(0.0, 1.0).cpu(),
+        neighbor_targets.clamp(0.0, 1.0).cpu(),
+    )
+
+
+def conservative_reliability(raw_weights, previous_weights, rise_momentum):
+    raw_weights = raw_weights.detach().float().cpu()
+    if previous_weights is None:
+        return raw_weights
+    previous_weights = previous_weights.detach().float().cpu()
+    if previous_weights.shape != raw_weights.shape:
+        raise ValueError(
+            "previous reliability shape must match current weights"
+        )
+    smoothed_rise = (
+        rise_momentum * previous_weights
+        + (1.0 - rise_momentum) * raw_weights
+    )
+    return torch.where(
+        raw_weights < previous_weights,
+        raw_weights,
+        smoothed_rise,
     )
 
 
 @torch.no_grad()
 def collect_train_representations(model, loader, device, sample_count):
     model.eval()
-    image_hashes = None
-    text_hashes = None
+    image_features = None
+    text_features = None
     restored_labels = None
     seen = torch.zeros(sample_count, dtype=torch.bool)
     for image, text, labels, index in loader:
-        image_hash, text_hash, _, _ = unpack_model_outputs(
+        batch_image_features, batch_text_features = unpack_semantic_features(
             model(image.to(device), text.to(device))
         )
-        image_hash = image_hash.detach().float().cpu()
-        text_hash = text_hash.detach().float().cpu()
+        batch_image_features = batch_image_features.detach().float().cpu()
+        batch_text_features = batch_text_features.detach().float().cpu()
         labels = labels.detach().float().cpu()
-        if image_hashes is None:
-            image_hashes = torch.empty(
-                sample_count, image_hash.shape[1], dtype=image_hash.dtype
+        if image_features is None:
+            image_features = torch.empty(
+                sample_count,
+                batch_image_features.shape[1],
+                dtype=batch_image_features.dtype,
             )
-            text_hashes = torch.empty(
-                sample_count, text_hash.shape[1], dtype=text_hash.dtype
+            text_features = torch.empty(
+                sample_count,
+                batch_text_features.shape[1],
+                dtype=batch_text_features.dtype,
             )
             restored_labels = torch.empty(
                 sample_count, labels.shape[1], dtype=labels.dtype
             )
         index = index.long()
-        image_hashes[index] = image_hash
-        text_hashes[index] = text_hash
+        image_features[index] = batch_image_features
+        text_features[index] = batch_text_features
         restored_labels[index] = labels
         seen[index] = True
     if not seen.all():
         raise RuntimeError(
             "representation collection did not visit every sample"
         )
-    return image_hashes, text_hashes, restored_labels
+    return image_features, text_features, restored_labels

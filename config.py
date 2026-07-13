@@ -28,9 +28,10 @@ DEFAULT_CONFIG = {
     "robust_training": {
         "knn_classification_weight": {
             "enabled": True,
-            "warmup_epochs": 5,
+            "warmup_epochs": 1,
             "k": 20,
             "gamma": 0.5,
+            "rise_momentum": 0.9,
             "chunk_size": 1024,
             "soft_label_enabled": True,
         },
@@ -263,6 +264,12 @@ def _validate_knn(knn, classification_enabled):
     _require_nonnegative("knn_classification_weight.warmup_epochs", knn.warmup_epochs)
     _require_positive("knn_classification_weight.k", knn.k)
     _require_between("knn_classification_weight.gamma", knn.gamma, 0.0, 1.0)
+    _require_between(
+        "knn_classification_weight.rise_momentum",
+        knn.rise_momentum,
+        0.0,
+        1.0,
+    )
     _require_positive("knn_classification_weight.chunk_size", knn.chunk_size)
 
 

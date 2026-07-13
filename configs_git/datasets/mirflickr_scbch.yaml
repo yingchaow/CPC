@@ -8,7 +8,7 @@ dataset:
   h5_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch/mirflickr_scbch.h5
   split_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch/split.npz
   noise_rate: 0.5
-  noise_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch/labels_noise_0.8_seed42.h5
+  noise_path: /home/jiyonghui/wangyingchao/classic_hashing/artifacts/mirflickr_scbch/labels_noise_0.5_seed42.h5
   image_dim: 4096
   text_dim: 1386
   num_classes: 24

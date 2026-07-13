@@ -87,6 +87,7 @@ def format_epoch_log(epoch, epochs, metrics, selection=None):
         "quantization",
         "classification",
         "cmp",
+        "raw_class_weight_mean",
         "class_weight_mean",
         "nr_pure",
         "nr_hard",
