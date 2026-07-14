@@ -86,10 +86,10 @@ class DualHashModel(nn.Module):
                     "num_classes is required for classification heads"
                 )
             self.image_classifier = nn.Linear(
-                self.image_encoder.semantic_dim, num_classes, bias=False
+                hash_bits, num_classes, bias=False
             )
             self.text_classifier = nn.Linear(
-                self.text_encoder.semantic_dim, num_classes, bias=False
+                hash_bits, num_classes, bias=False
             )
             nn.init.orthogonal_(self.image_classifier.weight)
             nn.init.orthogonal_(self.text_classifier.weight)
@@ -100,8 +100,8 @@ class DualHashModel(nn.Module):
         image_logits = None
         text_logits = None
         if self.classification_enabled:
-            image_logits = self.image_classifier(image_semantic)
-            text_logits = self.text_classifier(text_semantic)
+            image_logits = self.image_classifier(image_hash)
+            text_logits = self.text_classifier(text_hash)
         return DualHashOutput(
             image_hash=image_hash,
             text_hash=text_hash,

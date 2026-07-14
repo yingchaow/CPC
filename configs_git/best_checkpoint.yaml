@@ -1,5 +1,5 @@
 experiment:
-  name: best_checkpoint_test_5_semantic_hash_decoupling
+  name: best_checkpoint_test_7_semantic_knn_hash_classification
   seed: 42
   output_dir: classic_hashing/outputs
 model:
